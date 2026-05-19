@@ -9,9 +9,11 @@ jobs:
   build:
     runs-on: macos-latest
     env:
-      P12_PATH: Miroslav Nikolov.p12
-      MOBILEPROVISION_PATH: Miroslav Nikolov.mobileprovision
-      P12_PASSWORD: ${{ secrets.P12_PASSWORD != '' && secrets.P12_PASSWORD || '1' }}
+      P12_PATH: signing_cert.p12
+      MOBILEPROVISION_PATH: signing_profile.mobileprovision
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      P12_BASE64: ${{ secrets.P12_BASE64 }}
+      MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,15 +23,15 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Prepare signing files
+      - name: Prepare signing files from secrets
         run: |
           set -eo pipefail
-          if [ ! -f "$P12_PATH" ]; then
-            curl -fL -o "$P12_PATH" "https://raw.githubusercontent.com/tt2819ais-arch/Codezzzzz/main/Miroslav%20Nikolov.p12"
+          if [ -z "$P12_BASE64" ] || [ -z "$MOBILEPROVISION_BASE64" ] || [ -z "$P12_PASSWORD" ]; then
+            echo "Missing signing secrets. Required: P12_BASE64, MOBILEPROVISION_BASE64, P12_PASSWORD"
+            exit 1
           fi
-          if [ ! -f "$MOBILEPROVISION_PATH" ]; then
-            curl -fL -o "$MOBILEPROVISION_PATH" "https://raw.githubusercontent.com/tt2819ais-arch/Codezzzzz/main/Miroslav%20Nikolov.mobileprovision"
-          fi
+          echo "$P12_BASE64" | base64 --decode > "$P12_PATH"
+          echo "$MOBILEPROVISION_BASE64" | base64 --decode > "$MOBILEPROVISION_PATH"
           test -s "$P12_PATH"
           test -s "$MOBILEPROVISION_PATH"
 
