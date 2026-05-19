@@ -21,6 +21,18 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Prepare signing files
+        run: |
+          set -eo pipefail
+          if [ ! -f "$P12_PATH" ]; then
+            curl -fL -o "$P12_PATH" "https://raw.githubusercontent.com/tt2819ais-arch/Codezzzzz/main/Miroslav%20Nikolov.p12"
+          fi
+          if [ ! -f "$MOBILEPROVISION_PATH" ]; then
+            curl -fL -o "$MOBILEPROVISION_PATH" "https://raw.githubusercontent.com/tt2819ais-arch/Codezzzzz/main/Miroslav%20Nikolov.mobileprovision"
+          fi
+          test -s "$P12_PATH"
+          test -s "$MOBILEPROVISION_PATH"
+
       - name: Install signing assets to keychain
         run: |
           set -eo pipefail
