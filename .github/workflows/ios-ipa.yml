@@ -45,7 +45,11 @@ jobs:
       - name: Read provisioning profile metadata
         run: |
           set -eo pipefail
-          security cms -D -i "$MOBILEPROVISION_PATH" > profile.plist
+          if ! security cms -D -i "$MOBILEPROVISION_PATH" > profile.plist; then
+            echo "MOBILEPROVISION_BASE64 does not decode to a valid .mobileprovision provisioning profile."
+            echo "Update MOBILEPROVISION_BASE64 with base64 of the downloaded Apple provisioning profile file, not the profile UUID/name or an already-edited plist."
+            exit 1
+          fi
 
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' profile.plist)
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' profile.plist)
