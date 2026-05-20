@@ -15,15 +15,24 @@ final class NetworkDiagnosticsEngine {
         async let pingSamples = measurePingSamples()
         async let down = networkService.estimateDownloadSpeedMbps()
         async let up = networkService.estimateUploadSpeedMbps()
+        async let netType = currentNetworkType()
 
         let ipValue = try await ip
         let geo = try await geoService.geoInfo(ip: ipValue)
         let samples = await pingSamples
         let download = await down
         let upload = await up
+        let networkType = await netType
 
-        let avgPing = samples.reduce(0, +) / Double(max(samples.count, 1))
-        let jitter = Self.jitter(samples)
+        let timeouts = samples.filter { $0 >= 999 }.count
+        let successful = samples.filter { $0 < 999 }
+        let avgPing = successful.isEmpty
+            ? 0
+            : successful.reduce(0, +) / Double(successful.count)
+        let jitter = Self.jitter(successful)
+        let packetLoss = samples.isEmpty
+            ? 0
+            : Double(timeouts) / Double(samples.count) * 100
 
         return NetworkReport(
             ip: ipValue,
@@ -33,17 +42,17 @@ final class NetworkDiagnosticsEngine {
             ping: avgPing,
             downloadSpeed: download,
             uploadSpeed: upload,
-            packetLoss: samples.filter { $0 > 900 }.isEmpty ? Double.random(in: 0...8) : Double.random(in: 20...45),
-            dnsTimeouts: samples.filter { $0 > 900 }.count,
+            packetLoss: packetLoss,
+            dnsTimeouts: timeouts,
             latencyJitter: jitter,
-            networkType: currentNetworkType(),
+            networkType: networkType,
             localTime: Date.now.formatted(date: .omitted, time: .standard)
         )
     }
 
     private func measurePingSamples() async -> [Double] {
         var results: [Double] = []
-        for _ in 0..<4 {
+        for _ in 0..<8 {
             results.append(await networkService.measureLatency())
         }
         return results
@@ -55,15 +64,23 @@ final class NetworkDiagnosticsEngine {
         return diffs.reduce(0, +) / Double(diffs.count)
     }
 
-    private func currentNetworkType() -> String {
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue(label: "netpulse.path")
-        monitor.start(queue: queue)
-        defer { monitor.cancel() }
-        guard let path = monitor.currentPath as NWPath? else { return "Unknown" }
-        if path.usesInterfaceType(.wifi) { return "Wi-Fi" }
-        if path.usesInterfaceType(.cellular) { return "Cellular" }
-        if path.usesInterfaceType(.wiredEthernet) { return "Ethernet" }
-        return "Unknown"
+    private func currentNetworkType() async -> String {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let monitor = NWPathMonitor()
+            let queue = DispatchQueue(label: "netpulse.path")
+            var resumed = false
+            monitor.pathUpdateHandler = { path in
+                guard !resumed else { return }
+                resumed = true
+                let value: String
+                if path.usesInterfaceType(.wifi) { value = "Wi-Fi" }
+                else if path.usesInterfaceType(.cellular) { value = "Cellular" }
+                else if path.usesInterfaceType(.wiredEthernet) { value = "Ethernet" }
+                else { value = "Unknown" }
+                monitor.cancel()
+                continuation.resume(returning: value)
+            }
+            monitor.start(queue: queue)
+        }
     }
 }
