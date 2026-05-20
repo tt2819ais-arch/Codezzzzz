@@ -53,11 +53,24 @@ struct InternetDiagnosticsView: View {
             }
             .navigationTitle("Диагностика")
             .onAppear { if vm.report == nil { vm.run() } }
-            .alert("Ошибка", isPresented: .constant(vm.errorText != nil), actions: {
-                Button("Повторить") { vm.errorText = nil; vm.run() }
-            }, message: {
-                Text(vm.errorText ?? "")
-            })
+            .alert(
+                "Ошибка",
+                isPresented: Binding(
+                    get: { vm.errorText != nil },
+                    set: { presented in if !presented { vm.errorText = nil } }
+                ),
+                presenting: vm.errorText
+            ) { _ in
+                Button("Повторить") {
+                    vm.errorText = nil
+                    vm.run()
+                }
+                Button("Отмена", role: .cancel) {
+                    vm.errorText = nil
+                }
+            } message: { text in
+                Text(text)
+            }
         }
     }
 

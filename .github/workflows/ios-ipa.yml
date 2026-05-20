@@ -1,19 +1,17 @@
-name: Build IPA for eSign
+name: Build IPA (unsigned)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, "capy/**" ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
     env:
-      P12_PATH: signing_cert.p12
-      MOBILEPROVISION_PATH: signing_profile.mobileprovision
-      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-      P12_BASE64: ${{ secrets.P12_BASE64 }}
-      MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+      BUNDLE_ID: com.FPR.de65dbe
+      SCHEME: NetPulse
+      PROJECT: NetPulse.xcodeproj
     steps:
       - uses: actions/checkout@v4
 
@@ -23,85 +21,50 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Prepare signing files from secrets
-        run: |
-          set -eo pipefail
-          if [ -z "$P12_BASE64" ] || [ -z "$MOBILEPROVISION_BASE64" ] || [ -z "$P12_PASSWORD" ]; then
-            echo "Missing signing secrets. Required: P12_BASE64, MOBILEPROVISION_BASE64, P12_PASSWORD"
-            exit 1
-          fi
-          echo "$P12_BASE64" | base64 --decode > "$P12_PATH"
-          echo "$MOBILEPROVISION_BASE64" | base64 --decode > "$MOBILEPROVISION_PATH"
-          test -s "$P12_PATH"
-          test -s "$MOBILEPROVISION_PATH"
-
-      - name: Install signing assets to keychain
-        run: |
-          set -eo pipefail
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-
-          security import "$P12_PATH" \
-            -k build.keychain \
-            -P "$P12_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$MOBILEPROVISION_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/"
-
-      - name: Build archive (signed)
+      - name: Build unsigned .app
         run: |
           set -eo pipefail
           xcodebuild \
-            -project NetPulse.xcodeproj \
-            -scheme NetPulse \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath build/NetPulse.xcarchive \
-            DEVELOPMENT_TEAM=9XN9K36M5R \
-            PRODUCT_BUNDLE_IDENTIFIER=com.FPR.de65dbe \
-            archive
+            -derivedDataPath build/dd \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            ENABLE_BITCODE=NO \
+            build
 
-      - name: Export IPA (standard exportArchive)
+      - name: Package IPA
         run: |
           set -eo pipefail
-          cat > ExportOptions.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>automatic</string>
-            <key>compileBitcode</key>
-            <false/>
-            <key>stripSwiftSymbols</key>
-            <true/>
-            <key>teamID</key>
-            <string>9XN9K36M5R</string>
-          </dict>
-          </plist>
-          PLIST
+          APP_PATH=$(find build/dd/Build/Products/Release-iphoneos -maxdepth 2 -name '*.app' -type d | head -n1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Built .app not found"
+            find build/dd -type d -name '*.app' || true
+            exit 1
+          fi
+          echo "Packaging $APP_PATH"
 
-          xcodebuild -exportArchive \
-            -archivePath build/NetPulse.xcarchive \
-            -exportPath build/export \
-            -exportOptionsPlist ExportOptions.plist
+          rm -rf build/Payload build/${SCHEME}-unsigned.ipa
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          (cd build && zip -qr --symlinks "${SCHEME}-unsigned.ipa" Payload)
 
-      - name: Validate IPA structure
-        run: |
-          set -eo pipefail
-          test -f build/export/NetPulse.ipa
-          unzip -l build/export/NetPulse.ipa | rg "Payload/.+\.app/Info.plist"
-          unzip -l build/export/NetPulse.ipa | rg "Payload/.+\.app/NetPulse"
+          test -f "build/${SCHEME}-unsigned.ipa"
+          unzip -l "build/${SCHEME}-unsigned.ipa" | grep -E "Payload/[^/]+\.app/Info.plist"
+          unzip -l "build/${SCHEME}-unsigned.ipa" | grep -E "Payload/[^/]+\.app/${SCHEME}$"
 
-      - name: Upload artifact
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetPulse-ipa-esign-ready
-          path: build/export/NetPulse.ipa
+          name: NetPulse-ipa-unsigned
+          path: build/NetPulse-unsigned.ipa
+          if-no-files-found: error
