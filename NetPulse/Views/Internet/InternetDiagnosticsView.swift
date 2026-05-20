@@ -20,9 +20,9 @@ struct InternetDiagnosticsView: View {
                         card {
                             row("IP", report.ip)
                             row("Город", "\(report.city), \(report.country)")
-                            row("Ping", "\(report.ping, specifier: "%.0f") ms")
-                            row("Download", "\(report.downloadSpeed, specifier: "%.2f") Mbps")
-                            row("Upload", "\(report.uploadSpeed, specifier: "%.2f") Mbps")
+                            row("Ping", String(format: "%.0f ms", report.ping))
+                            row("Download", String(format: "%.2f Mbps", report.downloadSpeed))
+                            row("Upload", String(format: "%.2f Mbps", report.uploadSpeed))
                             row("Тип сети", report.networkType)
                             row("ASN", report.asn)
                             row("Локальное время", report.localTime)

@@ -68,10 +68,9 @@ final class NetworkDiagnosticsEngine {
         await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
             let monitor = NWPathMonitor()
             let queue = DispatchQueue(label: "netpulse.path")
-            var resumed = false
+            let once = OnceFlag()
             monitor.pathUpdateHandler = { path in
-                guard !resumed else { return }
-                resumed = true
+                guard once.tryFire() else { return }
                 let value: String
                 if path.usesInterfaceType(.wifi) { value = "Wi-Fi" }
                 else if path.usesInterfaceType(.cellular) { value = "Cellular" }
@@ -82,5 +81,18 @@ final class NetworkDiagnosticsEngine {
             }
             monitor.start(queue: queue)
         }
+    }
+}
+
+private final class OnceFlag {
+    private let lock = NSLock()
+    private var fired = false
+
+    func tryFire() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !fired else { return false }
+        fired = true
+        return true
     }
 }
