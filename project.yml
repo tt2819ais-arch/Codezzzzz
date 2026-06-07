@@ -13,6 +13,7 @@ targets:
       base:
         INFOPLIST_FILE: NetPulse/Resources/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.FPR.de65dbe
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 1.0
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
