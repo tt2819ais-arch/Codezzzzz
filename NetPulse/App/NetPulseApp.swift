@@ -2,20 +2,14 @@ import SwiftUI
 
 @main
 struct NetPulseApp: App {
-    @AppStorage("manualTheme") private var manualTheme: String = "system"
+    @StateObject private var settings = AppSettings()
 
     var body: some Scene {
         WindowGroup {
             RootTabView()
-                .preferredColorScheme(colorScheme)
-        }
-    }
-
-    private var colorScheme: ColorScheme? {
-        switch manualTheme {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
+                .environmentObject(settings)
+                .tint(Theme.accent)
+                .preferredColorScheme(settings.appearance.colorScheme)
         }
     }
 }

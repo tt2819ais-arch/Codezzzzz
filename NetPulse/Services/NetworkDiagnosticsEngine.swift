@@ -1,86 +1,88 @@
 import Foundation
-import Network
 
+/// Orchestrates a full diagnostics run and reports progress as it goes.
+///
+/// Phases run partly in parallel: identity/geo, latency, and connection type are
+/// independent, while throughput tests run sequentially after them so they do
+/// not contend with the latency probe for bandwidth (which would corrupt both).
 final class NetworkDiagnosticsEngine {
-    private let networkService: NetworkService
-    private let geoService: GeoIPService
+    private let geo: GeoIPService
+    private let latencyHost: String
+    private let latencyPort: UInt16
 
-    init(networkService: NetworkService = NetworkService(), geoService: GeoIPService = GeoIPService()) {
-        self.networkService = networkService
-        self.geoService = geoService
+    init(
+        geo: GeoIPService = GeoIPService(),
+        latencyHost: String = "1.1.1.1",
+        latencyPort: UInt16 = 443
+    ) {
+        self.geo = geo
+        self.latencyHost = latencyHost
+        self.latencyPort = latencyPort
     }
 
-    func generateReport() async throws -> NetworkReport {
-        async let ip = networkService.publicIP()
-        async let pingSamples = measurePingSamples()
-        async let down = networkService.estimateDownloadSpeedMbps()
-        async let up = networkService.estimateUploadSpeedMbps()
-        async let netType = currentNetworkType()
+    /// Progress phases, surfaced to the UI for an honest progress bar.
+    enum Phase: String {
+        case identity = "Определяем IP и провайдера…"
+        case latency = "Измеряем задержку…"
+        case download = "Тест скорости загрузки…"
+        case upload = "Тест скорости отдачи…"
+        case done = "Готово"
 
-        let ipValue = try await ip
-        let geo = try await geoService.geoInfo(ip: ipValue)
-        let samples = await pingSamples
-        let download = await down
-        let upload = await up
-        let networkType = await netType
+        var fraction: Double {
+            switch self {
+            case .identity: return 0.15
+            case .latency: return 0.40
+            case .download: return 0.70
+            case .upload: return 0.92
+            case .done: return 1.0
+            }
+        }
+    }
 
-        let timeouts = samples.filter { $0 >= 999 }.count
-        let successful = samples.filter { $0 < 999 }
-        let avgPing = successful.isEmpty
-            ? 0
-            : successful.reduce(0, +) / Double(successful.count)
-        let jitter = Self.jitter(successful)
-        let packetLoss = samples.isEmpty
-            ? 0
-            : Double(timeouts) / Double(samples.count) * 100
+    /// Settings that influence a run.
+    struct Options {
+        var pingCount: Int = 8
+        var runThroughput: Bool = true
+    }
+
+    func run(
+        options: Options = Options(),
+        onProgress: @escaping (Phase) -> Void
+    ) async -> NetworkReport {
+        onProgress(.identity)
+        async let geoInfo = geo.fetch()
+        async let connType = ConnectionMonitor.currentType()
+
+        onProgress(.latency)
+        let probe = LatencyProbe(host: latencyHost, port: latencyPort)
+        let latency = await probe.run(count: options.pingCount)
+
+        var download = 0.0
+        var upload = 0.0
+        if options.runThroughput {
+            let throughput = ThroughputProbe()
+            onProgress(.download)
+            download = await throughput.measureDownloadMbps()
+            onProgress(.upload)
+            upload = await throughput.measureUploadMbps()
+        }
+
+        let info = await geoInfo
+        let connection = await connType
+        onProgress(.done)
 
         return NetworkReport(
-            ip: ipValue,
-            city: geo.city ?? "Unknown",
-            country: geo.country ?? "Unknown",
-            asn: geo.org ?? "N/A",
-            ping: avgPing,
-            downloadSpeed: download,
-            uploadSpeed: upload,
-            packetLoss: packetLoss,
-            dnsTimeouts: timeouts,
-            latencyJitter: jitter,
-            networkType: networkType,
-            localTime: Date.now.formatted(date: .omitted, time: .standard)
+            timestamp: Date(),
+            ip: info.ip,
+            city: info.city,
+            country: info.country,
+            isp: info.isp,
+            latencyMs: latency.averageMs,
+            jitterMs: latency.jitterMs,
+            packetLoss: latency.lossPercent,
+            downloadMbps: download,
+            uploadMbps: upload,
+            connectionType: connection
         )
-    }
-
-    private func measurePingSamples() async -> [Double] {
-        var results: [Double] = []
-        for _ in 0..<8 {
-            results.append(await networkService.measureLatency())
-        }
-        return results
-    }
-
-    private static func jitter(_ samples: [Double]) -> Double {
-        guard samples.count > 1 else { return 0 }
-        let diffs = zip(samples.dropFirst(), samples).map { abs($0 - $1) }
-        return diffs.reduce(0, +) / Double(diffs.count)
-    }
-
-    private func currentNetworkType() async -> String {
-        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            let monitor = NWPathMonitor()
-            let queue = DispatchQueue(label: "netpulse.path")
-            var resumed = false
-            monitor.pathUpdateHandler = { path in
-                guard !resumed else { return }
-                resumed = true
-                let value: String
-                if path.usesInterfaceType(.wifi) { value = "Wi-Fi" }
-                else if path.usesInterfaceType(.cellular) { value = "Cellular" }
-                else if path.usesInterfaceType(.wiredEthernet) { value = "Ethernet" }
-                else { value = "Unknown" }
-                monitor.cancel()
-                continuation.resume(returning: value)
-            }
-            monitor.start(queue: queue)
-        }
     }
 }
