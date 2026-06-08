@@ -11,6 +11,7 @@ struct PulseGauge: View {
 
     @State private var pulse = false
     @State private var rotate = false
+    @State private var appeared = false
 
     private var tint: Color {
         switch score {
@@ -58,7 +59,12 @@ struct PulseGauge: View {
             }
         }
         .frame(width: 230, height: 230)
-        .onAppear { startAnimations() }
+        .scaleEffect(appeared ? 1 : 0.9)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            startAnimations()
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.7)) { appeared = true }
+        }
         .onChange(of: isLoading) { _ in startAnimations() }
     }
 

@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct RootTabView: View {
+    @State private var selection = 0
+
     init() {
         // Translucent dark tab + nav bars so the Void backdrop shows through.
         let tab = UITabBarAppearance()
@@ -20,12 +22,18 @@ struct RootTabView: View {
     }
 
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             InternetDiagnosticsView()
                 .tabItem { Label("Сеть", systemImage: "antenna.radiowaves.left.and.right") }
+                .tag(0)
             HealthStatsView()
                 .tabItem { Label("Здоровье", systemImage: "heart.fill") }
+                .tag(1)
         }
         .tint(Color(red: 0.58, green: 0.5, blue: 1.0))
+        .onChange(of: selection) { _ in
+            // Crisp selection tick whenever the user switches tabs.
+            Haptics.selection()
+        }
     }
 }
